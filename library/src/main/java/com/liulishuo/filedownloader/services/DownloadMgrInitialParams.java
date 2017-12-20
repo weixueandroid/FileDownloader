@@ -16,13 +16,17 @@
 
 package com.liulishuo.filedownloader.services;
 
+import com.liulishuo.filedownloader.connection.DefaultConnectionCountAdapter;
 import com.liulishuo.filedownloader.connection.FileDownloadUrlConnection;
+import com.liulishuo.filedownloader.database.FileDownloadDatabase;
+import com.liulishuo.filedownloader.database.RemitDatabase;
 import com.liulishuo.filedownloader.model.FileDownloadModel;
 import com.liulishuo.filedownloader.stream.FileDownloadOutputStream;
 import com.liulishuo.filedownloader.stream.FileDownloadRandomAccessFile;
 import com.liulishuo.filedownloader.util.FileDownloadHelper;
 import com.liulishuo.filedownloader.util.FileDownloadLog;
 import com.liulishuo.filedownloader.util.FileDownloadProperties;
+import com.liulishuo.filedownloader.util.FileDownloadUtils;
 
 /**
  * Params in this class is used in the downloading manager, and would be used for initialize the
@@ -32,14 +36,15 @@ public class DownloadMgrInitialParams {
 
     private final InitCustomMaker mMaker;
 
-    public DownloadMgrInitialParams(InitCustomMaker maker) {
-        this.mMaker = maker;
-        if (maker != null) {
-            maker.securityCheck();
-        }
+    public DownloadMgrInitialParams() {
+        mMaker = null;
     }
 
-    int getMaxNetworkThreadCount() {
+    public DownloadMgrInitialParams(InitCustomMaker maker) {
+        this.mMaker = maker;
+    }
+
+    public int getMaxNetworkThreadCount() {
         if (mMaker == null) {
             return getDefaultMaxNetworkThreadCount();
         }
@@ -48,18 +53,19 @@ public class DownloadMgrInitialParams {
 
         if (customizeMaxNetworkThreadCount != null) {
             if (FileDownloadLog.NEED_LOG) {
-                FileDownloadLog.d(this, "initial FileDownloader manager with the customize " +
-                        "maxNetworkThreadCount: %d", customizeMaxNetworkThreadCount);
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "maxNetworkThreadCount: %d", customizeMaxNetworkThreadCount);
             }
 
-            return FileDownloadProperties.getValidNetworkThreadCount(customizeMaxNetworkThreadCount);
+            return FileDownloadProperties
+                    .getValidNetworkThreadCount(customizeMaxNetworkThreadCount);
         } else {
             return getDefaultMaxNetworkThreadCount();
         }
 
     }
 
-    FileDownloadDatabase createDatabase() {
+    public FileDownloadDatabase createDatabase() {
         if (mMaker == null || mMaker.mDatabaseCustomMaker == null) {
             return createDefaultDatabase();
         }
@@ -67,8 +73,8 @@ public class DownloadMgrInitialParams {
 
         if (customDatabase != null) {
             if (FileDownloadLog.NEED_LOG) {
-                FileDownloadLog.d(this, "initial FileDownloader manager with the customize " +
-                        "database: %s", customDatabase);
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "database: %s", customDatabase);
             }
             return customDatabase;
         } else {
@@ -77,16 +83,17 @@ public class DownloadMgrInitialParams {
     }
 
 
-    FileDownloadHelper.OutputStreamCreator createOutputStreamCreator() {
+    public FileDownloadHelper.OutputStreamCreator createOutputStreamCreator() {
         if (mMaker == null) {
             return createDefaultOutputStreamCreator();
         }
 
-        final FileDownloadHelper.OutputStreamCreator outputStreamCreator = mMaker.mOutputStreamCreator;
+        final FileDownloadHelper.OutputStreamCreator outputStreamCreator =
+                mMaker.mOutputStreamCreator;
         if (outputStreamCreator != null) {
             if (FileDownloadLog.NEED_LOG) {
-                FileDownloadLog.d(this, "initial FileDownloader manager with the customize " +
-                        "output stream: %s", outputStreamCreator);
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "output stream: %s", outputStreamCreator);
             }
             return outputStreamCreator;
         } else {
@@ -94,7 +101,7 @@ public class DownloadMgrInitialParams {
         }
     }
 
-    FileDownloadHelper.ConnectionCreator createConnectionCreator() {
+    public FileDownloadHelper.ConnectionCreator createConnectionCreator() {
         if (mMaker == null) {
             return createDefaultConnectionCreator();
         }
@@ -103,8 +110,8 @@ public class DownloadMgrInitialParams {
 
         if (connectionCreator != null) {
             if (FileDownloadLog.NEED_LOG) {
-                FileDownloadLog.d(this, "initial FileDownloader manager with the customize " +
-                        "connection creator: %s", connectionCreator);
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "connection creator: %s", connectionCreator);
             }
             return connectionCreator;
         } else {
@@ -112,13 +119,51 @@ public class DownloadMgrInitialParams {
         }
     }
 
+    public FileDownloadHelper.ConnectionCountAdapter createConnectionCountAdapter() {
+        if (mMaker == null) {
+            return createDefaultConnectionCountAdapter();
+        }
+
+        final FileDownloadHelper.ConnectionCountAdapter adapter = mMaker.mConnectionCountAdapter;
+        if (adapter != null) {
+            if (FileDownloadLog.NEED_LOG) {
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "connection count adapter: %s", adapter);
+            }
+            return adapter;
+        } else {
+            return createDefaultConnectionCountAdapter();
+        }
+    }
+
+    public FileDownloadHelper.IdGenerator createIdGenerator() {
+        if (mMaker == null) {
+            return createDefaultIdGenerator();
+        }
+
+        final FileDownloadHelper.IdGenerator idGenerator = mMaker.mIdGenerator;
+        if (idGenerator != null) {
+            if (FileDownloadLog.NEED_LOG) {
+                FileDownloadLog.d(this, "initial FileDownloader manager with the customize "
+                        + "id generator: %s", idGenerator);
+            }
+
+            return idGenerator;
+        } else {
+            return createDefaultIdGenerator();
+        }
+    }
+
+    private FileDownloadHelper.IdGenerator createDefaultIdGenerator() {
+        return new DefaultIdGenerator();
+    }
 
     private int getDefaultMaxNetworkThreadCount() {
-        return FileDownloadProperties.getImpl().DOWNLOAD_MAX_NETWORK_THREAD_COUNT;
+        return FileDownloadProperties.getImpl().downloadMaxNetworkThreadCount;
     }
 
     private FileDownloadDatabase createDefaultDatabase() {
-        return new DefaultDatabaseImpl();
+        return new RemitDatabase();
     }
 
     private FileDownloadHelper.OutputStreamCreator createDefaultOutputStreamCreator() {
@@ -129,11 +174,40 @@ public class DownloadMgrInitialParams {
         return new FileDownloadUrlConnection.Creator();
     }
 
+    private FileDownloadHelper.ConnectionCountAdapter createDefaultConnectionCountAdapter() {
+        return new DefaultConnectionCountAdapter();
+    }
+
     public static class InitCustomMaker {
         FileDownloadHelper.DatabaseCustomMaker mDatabaseCustomMaker;
         Integer mMaxNetworkThreadCount;
         FileDownloadHelper.OutputStreamCreator mOutputStreamCreator;
         FileDownloadHelper.ConnectionCreator mConnectionCreator;
+        FileDownloadHelper.ConnectionCountAdapter mConnectionCountAdapter;
+        FileDownloadHelper.IdGenerator mIdGenerator;
+
+        /**
+         * customize the id generator.
+         *
+         * @param idGenerator the id generator used for generating download identify manually.
+         */
+        public InitCustomMaker idGenerator(FileDownloadHelper.IdGenerator idGenerator) {
+            this.mIdGenerator = idGenerator;
+            return this;
+        }
+
+        /**
+         * customize the connection count adapter.
+         *
+         * @param adapter the adapter used for determine how many connection will be used to
+         *                downloading the target task.
+         * @return the connection count adapter.
+         */
+        public InitCustomMaker connectionCountAdapter(
+                FileDownloadHelper.ConnectionCountAdapter adapter) {
+            this.mConnectionCountAdapter = adapter;
+            return this;
+        }
 
         /**
          * customize the database component.
@@ -162,12 +236,12 @@ public class DownloadMgrInitialParams {
          * If you don't customize the network thread count, we use the result of
          * {@link #getDefaultMaxNetworkThreadCount()} as the default one.
          *
-         * @param maxNetworkThreadCount The maximum count of the network thread, what is the number of
-         *                              simultaneous downloads in FileDownloader.
+         * @param maxNetworkThreadCount The maximum count of the network thread, what is the number
+         *                              of simultaneous downloads in FileDownloader.
          *                              <p>
          *                              If this value is less than or equal to 0, the value will be
          *                              ignored and use
-         *                              {@link FileDownloadProperties#DOWNLOAD_MAX_NETWORK_THREAD_COUNT}
+         *                              {@link FileDownloadProperties#downloadMaxNetworkThreadCount}
          *                              which is defined in filedownloader.properties instead.
          */
         public InitCustomMaker maxNetworkThreadCount(int maxNetworkThreadCount) {
@@ -183,11 +257,26 @@ public class DownloadMgrInitialParams {
          * If you don't customize the output stream component, we use the result of
          * {@link #createDefaultOutputStreamCreator()} as the default one.
          *
-         * @param creator The output stream creator is used for creating {@link FileDownloadOutputStream}
-         *                which is used to write the input stream to the file for downloading.
+         * @param creator The output stream creator is used for creating
+         *                {@link FileDownloadOutputStream} which is used to write the input stream
+         *                to the file for downloading.
          */
         public InitCustomMaker outputStreamCreator(FileDownloadHelper.OutputStreamCreator creator) {
             this.mOutputStreamCreator = creator;
+            if (mOutputStreamCreator != null && !mOutputStreamCreator.supportSeek()) {
+                if (!FileDownloadProperties.getImpl().fileNonPreAllocation) {
+                    throw new IllegalArgumentException(
+                            "Since the provided FileDownloadOutputStream "
+                                    + "does not support the seek function, if FileDownloader"
+                                    + " pre-allocates file size at the beginning of the download,"
+                                    + " it will can not be resumed from the breakpoint. If you need"
+                                    + " to ensure that the resumption is available, please add and"
+                                    + " set the value of 'file.non-pre-allocation' field to 'true'"
+                                    + " in the 'filedownloader.properties' file which is in your"
+                                    + " application assets folder manually for resolving this "
+                                    + "problem.");
+                }
+            }
             return this;
         }
 
@@ -205,18 +294,17 @@ public class DownloadMgrInitialParams {
             return this;
         }
 
-        private void securityCheck() {
-            if (mOutputStreamCreator != null && !mOutputStreamCreator.supportSeek()) {
-                if (!FileDownloadProperties.getImpl().FILE_NON_PRE_ALLOCATION) {
-                    throw new IllegalArgumentException("Since the provided FileDownloadOutputStream " +
-                            "does not support the seek function, if FileDownloader pre-allocates " +
-                            "file size at the beginning of the download, it will can not be resumed" +
-                            " from the breakpoint. If you need to ensure that the resumption is" +
-                            " available, please add and set the value of 'file.non-pre-allocation' " +
-                            "field to 'true' in the 'filedownloader.properties' file which is in your" +
-                            " application assets folder manually for resolving this problem.");
-                }
-            }
+        @SuppressWarnings("EmptyMethod")
+        public void commit() {
+            // do nothing now.
+        }
+
+        @Override
+        public String toString() {
+            return FileDownloadUtils.formatString("component: database[%s], maxNetworkCount[%s],"
+                            + " outputStream[%s], connection[%s], connectionCountAdapter[%s]",
+                    mDatabaseCustomMaker, mMaxNetworkThreadCount, mOutputStreamCreator,
+                    mConnectionCreator, mConnectionCountAdapter);
         }
     }
 }

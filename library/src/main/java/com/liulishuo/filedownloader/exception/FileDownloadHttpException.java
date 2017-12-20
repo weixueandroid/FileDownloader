@@ -17,16 +17,17 @@ package com.liulishuo.filedownloader.exception;
 
 import com.liulishuo.filedownloader.util.FileDownloadUtils;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Throw this exception, when the HTTP status code is not {@link java.net.HttpURLConnection#HTTP_OK},
+ * Throw this exception, when the HTTP status code is not {@link java.net.HttpURLConnection#HTTP_OK}
  * and not {@link java.net.HttpURLConnection#HTTP_PARTIAL} either.
  */
-public class FileDownloadHttpException extends RuntimeException {
+public class FileDownloadHttpException extends IOException {
     private final int mCode;
     private final Map<String, List<String>> mRequestHeaderMap;
     private final Map<String, List<String>> mResponseHeaderMap;
@@ -34,8 +35,8 @@ public class FileDownloadHttpException extends RuntimeException {
     public FileDownloadHttpException(final int code,
                                      final Map<String, List<String>> requestHeaderMap,
                                      final Map<String, List<String>> responseHeaderMap) {
-        super(FileDownloadUtils.formatString("response code error: %d, \n request headers: %s \n " +
-                "response headers: %s", code, requestHeaderMap, responseHeaderMap));
+        super(FileDownloadUtils.formatString("response code error: %d, \n request headers: %s \n "
+                + "response headers: %s", code, requestHeaderMap, responseHeaderMap));
 
         this.mCode = code;
         this.mRequestHeaderMap = cloneSerializableMap(requestHeaderMap);
@@ -63,7 +64,8 @@ public class FileDownloadHttpException extends RuntimeException {
         return this.mCode;
     }
 
-    private static Map<String, List<String>> cloneSerializableMap(final Map<String, List<String>> originMap) {
+    private static Map<String, List<String>> cloneSerializableMap(
+            final Map<String, List<String>> originMap) {
         final Map<String, List<String>> serialMap = new HashMap<>();
 
         for (Map.Entry<String, List<String>> entry : originMap.entrySet()) {

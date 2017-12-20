@@ -17,9 +17,9 @@
 package com.liulishuo.filedownloader.message;
 
 import com.liulishuo.filedownloader.BaseDownloadTask;
+import com.liulishuo.filedownloader.download.DownloadStatusCallback;
 import com.liulishuo.filedownloader.model.FileDownloadModel;
 import com.liulishuo.filedownloader.model.FileDownloadStatus;
-import com.liulishuo.filedownloader.services.FileDownloadRunnable;
 import com.liulishuo.filedownloader.util.FileDownloadLog;
 import com.liulishuo.filedownloader.util.FileDownloadUtils;
 
@@ -34,7 +34,8 @@ public class MessageSnapshotTaker {
         return take(status, model, null);
     }
 
-    public static MessageSnapshot catchCanReusedOldFile(int id, File oldFile, boolean flowDirectly) {
+    public static MessageSnapshot catchCanReusedOldFile(int id, File oldFile,
+                                                        boolean flowDirectly) {
         final long totalBytes = oldFile.length();
         if (totalBytes > Integer.MAX_VALUE) {
             if (flowDirectly) {
@@ -61,7 +62,8 @@ public class MessageSnapshotTaker {
             }
         } else {
             if (flowDirectly) {
-                return new SmallMessageSnapshot.WarnFlowDirectlySnapshot(id, (int) sofar, (int) total);
+                return new SmallMessageSnapshot.WarnFlowDirectlySnapshot(id, (int) sofar,
+                        (int) total);
             } else {
                 return new SmallMessageSnapshot.WarnMessageSnapshot(id, (int) sofar, (int) total);
             }
@@ -89,15 +91,16 @@ public class MessageSnapshotTaker {
     public static MessageSnapshot takeBlockCompleted(MessageSnapshot snapshot) {
         if (snapshot.getStatus() != FileDownloadStatus.completed) {
             throw new IllegalStateException(
-                    FileDownloadUtils.formatString("take block completed snapshot, must has " +
-                            "already be completed. %d %d", snapshot.getId(), snapshot.getStatus()));
+                    FileDownloadUtils.formatString("take block completed snapshot, must has "
+                                    + "already be completed. %d %d",
+                            snapshot.getId(), snapshot.getStatus()));
         }
 
         return new BlockCompleteMessage.BlockCompleteMessageImpl(snapshot);
     }
 
     public static MessageSnapshot take(byte status, FileDownloadModel model,
-                                       FileDownloadRunnable runnable) {
+                                       DownloadStatusCallback.ProcessParams processParams) {
         final MessageSnapshot snapShot;
         final int id = model.getId();
         if (status == FileDownloadStatus.warn) {
@@ -119,14 +122,15 @@ public class MessageSnapshotTaker {
                 snapShot = new MessageSnapshot.StartedMessageSnapshot(id);
                 break;
             case FileDownloadStatus.connected:
-                final String filename = model.isPathAsDirectory() ? model.getFilename() :
-                        null;
+                final String filename = model.isPathAsDirectory() ? model.getFilename() : null;
                 if (model.isLargeFile()) {
                     snapShot = new LargeMessageSnapshot.ConnectedMessageSnapshot(id,
-                            runnable.isResuming(), model.getTotal(), model.getETag(), filename);
+                            processParams.isResuming(), model.getTotal(), model.getETag(),
+                            filename);
                 } else {
                     snapShot = new SmallMessageSnapshot.ConnectedMessageSnapshot(id,
-                            runnable.isResuming(), (int) model.getTotal(), model.getETag(), filename);
+                            processParams.isResuming(), (int) model.getTotal(), model.getETag(),
+                            filename);
                 }
                 break;
             case FileDownloadStatus.progress:
@@ -150,33 +154,37 @@ public class MessageSnapshotTaker {
             case FileDownloadStatus.retry:
                 if (model.isLargeFile()) {
                     snapShot = new LargeMessageSnapshot.RetryMessageSnapshot(id,
-                            model.getSoFar(), runnable.getThrowable(), runnable.getRetryingTimes());
+                            model.getSoFar(), processParams.getException(),
+                            processParams.getRetryingTimes());
                 } else {
                     snapShot = new SmallMessageSnapshot.RetryMessageSnapshot(id,
-                            (int) model.getSoFar(), runnable.getThrowable(),
-                            runnable.getRetryingTimes());
+                            (int) model.getSoFar(), processParams.getException(),
+                            processParams.getRetryingTimes());
                 }
                 break;
             case FileDownloadStatus.error:
                 if (model.isLargeFile()) {
                     snapShot = new LargeMessageSnapshot.ErrorMessageSnapshot(id,
-                            model.getSoFar(), runnable.getThrowable());
+                            model.getSoFar(), processParams.getException());
                 } else {
                     snapShot = new SmallMessageSnapshot.ErrorMessageSnapshot(id,
-                            (int) model.getSoFar(), runnable.getThrowable());
+                            (int) model.getSoFar(), processParams.getException());
                 }
                 break;
             default:
                 // deal with as error.
                 final String message = FileDownloadUtils.
-                        formatString("it can't takes a snapshot for the task(%s) when its status " +
-                                "is %d,", model, status);
+                        formatString(
+                                "it can't takes a snapshot for the task(%s) when its status is %d,",
+                                model, status);
 
-                FileDownloadLog.w(MessageSnapshotTaker.class, message);
+                FileDownloadLog.w(MessageSnapshotTaker.class,
+                        "it can't takes a snapshot for the task(%s) when its status is %d,", model,
+                        status);
 
                 final Throwable throwable;
-                if (runnable.getThrowable() != null) {
-                    throwable = new IllegalStateException(message, runnable.getThrowable());
+                if (processParams.getException() != null) {
+                    throwable = new IllegalStateException(message, processParams.getException());
                 } else {
                     throwable = new IllegalStateException(message);
                 }

@@ -2,6 +2,294 @@
 
 > [ Change log in english](https://github.com/lingochamp/FileDownloader/blob/master/CHANGELOG.md)
 
+## Version 1.6.9
+
+_2017-12-16_
+
+#### 修复
+
+- 修复(serial-queue): 修复在`FileDownloadSerialQueue`遇到的死锁。 closes #858
+- 修复: 不再在非单元测试环境使用`j-unit`，避免在一些小米手机上发生`no-static-method-found`的问题。 closes #867
+- 修复: 修复每次重试减少两次重试机会的问题。 closes #838
+- 修复: 修复在`pending`的时候暂停任务，而后获取到该任务都是`pending`的状态的问题。 closes #855
+
+#### 性能与提高
+
+- 提高实用性: 开放`SqliteDatabaseImpl`、`RemitDatabase`、`NoDatabaseImpl`，便于上层覆盖他们。
+- 提高实用性: 支持从更高的版本降级到该版本。
+- 提高实用性: 当上层没有主动添加`User-Agent`的时候，内部添加默认的`User-Agent`。 closes #848
+- 提高性能: 修改所有的线程池中线程的存活时间(从5s修改为15s)，避免在高频下载中，各池子频繁的释放与创建线程
+- 提高性能: 使用`RemitDatabase`作为默认的数据库，在很多小任务很快的结束下载(2s内)，其数据库操作将会变得十分冗余，而这部分的数据库操作将被取消
+
+#### RemitDatabase
+
+FileDownloader中大多数数据库长尾问题，是由于有很多很小的任务同时执行：
+
+- 由于很小的任务每次启动、等待、连接、下载进度、结束都会促发入库
+- 一旦任务很小网速很快的时候，一个小任务实际下载耗时可能在1-2s完成
+- 因此整个引擎不得不为该1-2s完成的任务完成一连串的数据库入库、更新到从数据库删除的操作
+- 也就是说单个类似的任务在1-2s内促发了至少5次数据库操作，期间包含入库与最后的删除
+- 一个任务还好，当这样的任务数上升到几百个的层面，这样高频持续的数据库操作，就很容易暴露各种数据库问题（包含文件系统问题）
+- 而现有体系在上层推任务大量任务到下载服务的时候， 会高频持续的3个并行对这些任务做入库处理，在这个点上数据库问题也容易发生（包含文件系统问题）
+
+---
+
+而相比之下写入数据库是为了断点续传，这个短期的频繁数据库操作，实质的作用甚微，早期的提供外接接口来控制下载进度间的入库频率显然无法覆盖该问题。
+
+---
+
+因此，还是为FileDownloader推出新的`RemitDatabase`用于解决该问题，除去期间的多线程安全问题的处理，核心思想如下:
+![][RemitDatabase-png]
+
+- 如果某一个任务的整体数据更新与结束在2s(该值可定制)内，则不再有数据库操作，全程只存内存
+- 如果某一个任务的数据更新与结束操过2s，则分为两部分，2s前只存内存，2s开始同时存内存与数据库
+- 如果某一个任务最终的结束是暂停或错误，则在最后的状态更新中，同时存内存与数据库
+
+## Version 1.6.8
+
+_2017-10-13_
+
+#### 修复
+
+- 修复: 修复断点续传失败, 由于Network线程中的`isAlive`不可靠导致的问题。 this closes #793
+- 修复: 修复断点续传失败，由于多个线程频繁的更新`status`并且`DownloadStatusCallback`的`sendMessage`无法保证有序性，导致下一次启动时最终状态是`process`无法断点续传(具体原因参看[这里](https://github.com/lingochamp/FileDownloader/issues/793#issuecomment-336370126))。 this refs #793, #764, #721, #769, #763, #761, #716
+- 修复: 不再由于任务已经结束依然存在需要派发的信息而让用户程序奔溃，因为这个对用户并不会照成影响。 this closes #562
+- 修复: 修复当用户频繁调用`pause`时，有可能出现`it can't take a snapshot for the task xxx`错误的问题。
+- 修复: 修复由于内部存储的任务对象大小存在问题，导致这样的对象任务每一次启动都必然会`416`的问题。
+
+## Version 1.6.7
+
+_2017-10-12_
+
+#### 修复
+
+- 修复: 避免`error`与`pause`的状态被运行中的状态覆盖导致下次断点续传失败。 closes #769, closes #764, closes #761, closes #763, closes #721, closes #716
+- 修复: 感谢 @hongbiangoal 对问题的定位，修复了当某一个分块的断点进度大于1.99G时，请求的范围出现负数的情况。 closes #791
+
+## Version 1.6.6
+
+_2017-09-29_
+
+#### 修复
+
+- 修复(文件完整性): 只有在确保缓存已经完全固化到本地文件了才更新数据库的进度，防止在该次暂停时固化失败，然后数据库更新了进度，导致下一次断点续传的时候(使用预分配策略的情况下)，本地已经下载的文件的进度与数据库记录的进度实际不一致，导致最后下载完成了文件不完整的问题。 Closes #745
+- 修复(清理): 修复调用`FileDownloader#clearAllTaskData`并没有清理连接表的问题。 Closes #754
+
+#### 性能与提高
+
+- 提高性能: 使用`BufferedOutputStream`来优化默认输出流，现在虚拟机内的缓存大小为8192字节。
+
+## Version 1.6.5
+
+_2017-09-11_
+
+#### 修复
+
+- 修复(crash): 修复因为使用`%d`格式化`AtomicLong`导致`IllegalFormatConversionException`的问题。 Closes #743
+
+## Version 1.6.4
+
+_2017-08-21_
+
+#### 新接口
+
+- 新增 `NoDatabaseImpl`: 为了有些用户需要一个没有数据库的FileDownloader的用户。 Refs #727
+
+#### 性能与提高
+
+- 提高性能: 使用`AtomicLong`代替锁的方式，使得下载进度递增性能更好。
+
+#### 修复
+
+- 修复(分块下载): 修复在断点续传时之前已经下载了分块下载的最后一块，可是在继续下载时重新请求了最后一块给了错误的Range导致416的错误。 Closes #737
+- 修复(npe): 修复极小概率当事件监听已经被其他线程移除时还在分发事件导致NPE的问题。 Closes #723
+
+## Version 1.6.3
+
+_2017-07-29_
+
+#### 修复
+
+- 修复: 修复当正在处理回调结束任务的事务时，调用了`pause`极小概率出现NPE的问题。 Closes #680
+- 修复: 修复当暂停或恢复`FileDownloaderSerialQueue`的时候，其已经完成了该操作，出现`MissingFormatArgumentException`的问题。 Closes #699
+
+## Version 1.6.2
+
+_2017-07-16_
+
+#### 修复
+
+- 修复: 修复当FileDownloader下载文件有一个分块从大于1.99G的地方开始下载，就会发生'offset < 0'异常的问题。 Closes #669
+
+## Version 1.6.1
+
+_2017-07-13_
+
+#### 性能与提高
+
+- 提高实用性: 当返回的`content-length`不等于通过Range计算出来的`content-length`时直接抛回`GiveUpException`而不继续下载。 Closes #636
+
+#### 修复
+
+- 修复: 修复下载出现错误或暂停下载时强制多`sync`了一次的问题。
+- 修复: 修复当从断点中恢复chuncked任务后下载文件被损坏的问题。
+
+## Version 1.6.0
+
+_2017-07-07_
+
+#### 修复
+
+- 修复(no-response): 修复当多线程分块下载同时完成时，有可能会由于线程安全问题导致completed无法得到回调的问题，具体情况参看[这里](https://github.com/lingochamp/FileDownloader/issues/631#issuecomment-313387299)。 Closes #631
+
+## Version 1.5.9
+
+_2017-07-04_
+
+#### 修复
+
+- 修复(duplicate-permission): 修复在Android 5.0或更高版本系统的手机中已经有一个应用引用了1.5.7或更新版本的FileDownloader后，再安装引用1.5.7或更新版本的FileDownloader的应用会报`INSTALL_FAILED_DUPLICATE_PERMISSION`的问题，这个问题是因为在1.5.7版本中我们申明了一个接收结束广播的权限导致，现在我们移除了这个权限申明来修复这个问题。Closes #641
+
+## Version 1.5.8
+
+_2017-06-28_
+
+#### 修复
+
+- 修复(无响应): 修复非常快速的对相同任务启动、暂停来回切换会使得任务到后面没有响应的问题。Closes #625
+
+## Version 1.5.7
+
+_2017-06-25_
+
+#### 新接口
+
+- 支持在`filedownloader.properties`中配置`broadcast.completed`: 决定是否需要在任务下载完成后发送一个完成的广播。 Closes #605
+- 支持接收201的http返回状态码。 Closes #545
+- 为`FileDownloadSerialQueue`支持暂停与继续功能. Closes #547
+- 在FileDownloader内部处理了各类重定向的情况(300、301、302、303、307、308)。 Closes #611
+- 弃用了`FileDownloader#init`取而代之的是`FileDownloader#setup`，现在如果你不需要定制组件，就只需要在使用FileDownloader之前的任意使用调用这个方法就行。 Closes #500
+
+> - 如果你使用`broadcast.completed`并且接收任务完成的广播,你需要在AndroidManifest中注册Action为`filedownloader.intent.action.completed`的广播并且使用`FileDownloadBroadcastHandler`来处理接收到的`Intent`。
+> - 现在, 不再使用`FileDownloader#init`, 取而代之的，如果你需要注册你的定制组件，你需要在`Application#onCreate`中调用`FileDownloader.setupOnApplicationOnCreate(application):InitCustomMaker`, 否则你只需要在使用FileDownloader之前的任意时候调用`FileDownloader.setup(Context)`即可。
+
+#### 修复
+
+- 修复: 修复来`FileDownloadQueueSet`无法处理使wifi-required失效的操作。 感谢 @qtstc
+- 修复(output-stream): 修复当提供的output-stream不支持seek时，FileDownloader无法使用的问题。 Closes #622
+
+#### 性能与提高
+
+- 提高实用性: 覆盖使用不同的Url来复用下载进度的情况（结合`idGenerator`一起使用)。 Closes #617
+
+## Version 1.5.6
+
+_2017-06-18_
+
+#### 修复
+
+- 修复(crash): 修复当调用`findRunningTaskIdBySameTempPath`的同时请求了暂停可能导致NPE奔溃的问题。 Closes #613
+- 修复(crash): 修复返回状态是`206`并且它的ETAG发生变化时导致`IllegalArgumentException`错误奔溃的问题。 Closes #612
+- 修复(crash): 修复当用户请求下载需要Wifi并当前不是Wifi环境时，出现`FileDownloadNetworkPolicyException`未处理导致奔溃的问题。 感谢 @qtstc
+- 修复(crash): 修复当用户直接从`v1.4.3`升级到`v1.5.2`并且在一些其他综合因素下（具体可以参见 #610 ) 初始化数据库时出现`IllegalStateException`错误奔溃的问题。Closes #610
+- 修复(crash): 修复当回调流已经结束当时与此同时刚好出现错误或下载完成或暂停，小概率会出现`IllegalStateException`奔溃的问题。
+- 修复(no-response): 修复在接收到`connected`回调之后，多线程下载建立连接，此时在检验连接与数据获取连接期间服务端数据发生错误或变更导致启动下载后没有响应的问题。
+
+#### 性能与提高
+
+- 提高实用性: 当父级目录创建失败时直接回调`error`。 Closes #542
+- 提高实用性: 处理了返回状态是`416`的情况。 Refs #612
+
+## Version 1.5.5
+
+_2017-06-12_
+
+#### 修复
+
+- 修复(max-network-thread-count): 修复当任务都是多线程下载时，`download.max-network-thread-count`参数没起作用，并同时下载任务无上限的问题。 Closes #607
+
+## Version 1.5.4
+
+_2017-06-11_
+
+#### 新接口
+
+- 通过`IdGenerator`支持了定制下载任务id生成器。 Closes #224
+
+#### 性能与提高
+
+- 提高实用性: 将`FileDownloadModel`的维护从`FileDownloadDatabase`中解藕，让`FileDownloadDatabase`只关心数据库相关操作。
+- 提高实用性: 将数据库初始化的维护工作从默认的数据库实现中解藕出来，让定制的数据库也能够被采用相同机制维护到。
+
+## Version 1.5.3
+
+_2017-06-08_
+
+#### 修复
+
+- 修复(crash): 修复在计算平均速度的过程中`connected`与`completed`几乎同时回调时发生`divide by zero`异常的问题。 Refs #601
+- 修复(crash): 修复触发暂停的同时，`FetchDataTask`已经被创建并请求执行，但是还没有来得及被执行，导致NPE奔溃的问题。 Closes #601
+
+## Version 1.5.2
+
+_2017-06-07_
+
+#### 修复
+
+- 修复(crash): 修复当任务需要回调`error`或者被暂停时，刚好该任务的某个或几个链接完成下载，此时遇到NPE或者是`ConcurrentModificationException`的异常。Closes #598
+- 修复(crash): 修复当任务被暂停时，任务从开始到被暂停还没来得及同步一次数据到文件系统或者数据库，此时遇到NPE的异常。Refs #598
+- 修复(crash): 修复当采用多链接下载一个任务时，非首次建链失败或者是创建`FetchDataTast`失败，此时遇到NPE的异常。Refs #598
+- 修复(speed-calculate): 修复忽略整个下载进度回调，并且只使用`FinishListener`时，此时下载速度始终是`0`的问题。
+- 修复(finish-listener): 修复对于之前已经下载好的任务，并且只监听来`FinishListener`，此时`FinishListener`的`over`方法不会被回调到的问题。
+
+#### 性能与提高
+
+- 提升性能: 开启了默认数据库的WAL，使得读与写可并行操作来提高性能，因为我们的绝大多数场景读写是会在不同线程中同时执行的，开启这个以后会导致内存的增加，但是在大多数情况下极大的提高了数据库的写入速度，并且更加稳定（更少的使用`fsync()`)。
+
+## Version 1.5.1
+
+_2017-06-05_
+
+#### 修复
+
+- 修复(crash): 修复在`FileDownloader.init`中，当没有提供`InitCustomMaker`时出现的NPE奔溃。 Closes #592
+- 修复(callback): 修复当之前有多个链接服务于该任务并且正在从端点恢复时，在`pending`中没有带回其正确的`sofarBytes`的问题。
+- 修复(speed-monitor): 矫正`IDownloadSpeed.Monitor`在断点续传下总平均速度不准确的问题。
+
+#### 性能与提高
+
+- 提高稳定性: 当触发暂停时，主动同步FetchTask中的进度确保其进度得到固化到文件系统。
+- 提高稳定性: 当在`FileDownloader.init`中提供的`context`为空时，抛`IllegalArgumentException`以更早的暴露问题。
+
+## Version 1.5.0
+
+_2017-06-05_
+
+#### 新接口
+
+- 支持对单个任务多连接(多线程)下载。  Closes #102
+- 支持通过`ConnectionCountAdapter`定制对每个任务使用连接(线程)数据的定制(可以通过`FileDownloader#init`设置进去)
+
+#### 性能与提高
+
+- 提高性能: 重构整个下载的逻辑与原始回调逻辑，并删除了1000行左右的`FileDownloadRunnable`。
+
+对于每个任务默认的连接(线程)数目策略，你可以通过`ConnectionCountAdapter`来定制自己的策略:
+
+- 1个连接(线程): 文件大小 [0, 1MB)
+- 2个连接(线程): 文件大小 [1MB, 5MB)
+- 3个连接(线程): 文件大小 [5MB, 50MB)
+- 4个连接(线程): 文件大小 [50MB, 100MB)
+- 5个连接(线程): 文件大小 [100MB, -)
+
+## Version 1.4.3
+
+_2017-05-07_
+
+#### 修复
+
+- 修复: 移除重复的被弃用的方法: `FileDownloader#init(Application)`, 因为`Application`是 `Context`的实现。
+
 ## Version 1.4.2
 
 _2017-03-15_
@@ -566,5 +854,6 @@ _2015-12-22_
 
 - initial release
 
+[RemitDatabase-png]: https://github.com/lingochamp/FileDownloader/raw/master/art/remit-database.png
 [FileDownloadConnection-java-link]: https://github.com/lingochamp/FileDownloader/blob/master/library/src/main/java/com/liulishuo/filedownloader/connection/FileDownloadConnection.java
 [FileDownloadUrlConnection-java-link]: https://github.com/lingochamp/FileDownloader/blob/master/library/src/main/java/com/liulishuo/filedownloader/connection/FileDownloadUrlConnection.java

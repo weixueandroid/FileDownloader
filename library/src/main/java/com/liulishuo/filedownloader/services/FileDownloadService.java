@@ -21,7 +21,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
 
-import com.liulishuo.filedownloader.FileDownloadServiceProxy;
+import com.liulishuo.filedownloader.util.FileDownloadHelper;
 import com.liulishuo.filedownloader.util.FileDownloadProperties;
 import com.liulishuo.filedownloader.util.FileDownloadUtils;
 
@@ -42,20 +42,20 @@ public class FileDownloadService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        FileDownloadHelper.holdContext(this);
 
         try {
-            FileDownloadUtils.setMinProgressStep(FileDownloadProperties.getImpl().DOWNLOAD_MIN_PROGRESS_STEP);
-            FileDownloadUtils.setMinProgressTime(FileDownloadProperties.getImpl().DOWNLOAD_MIN_PROGRESS_TIME);
+            FileDownloadUtils.setMinProgressStep(
+                    FileDownloadProperties.getImpl().downloadMinProgressStep);
+            FileDownloadUtils.setMinProgressTime(
+                    FileDownloadProperties.getImpl().downloadMinProgressTime);
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
 
-        final DownloadMgrInitialParams initialParams =
-                FileDownloadServiceProxy.getImpl().getDownloadMgrInitialParams();
+        final FileDownloadManager manager = new FileDownloadManager();
 
-        final FileDownloadMgr manager = new FileDownloadMgr(initialParams);
-
-        if (FileDownloadProperties.getImpl().PROCESS_NON_SEPARATE) {
+        if (FileDownloadProperties.getImpl().processNonSeparate) {
             handler = new FDServiceSharedHandler(new WeakReference<>(this), manager);
         } else {
             handler = new FDServiceSeparateHandler(new WeakReference<>(this), manager);

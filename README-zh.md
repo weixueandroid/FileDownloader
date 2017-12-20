@@ -19,6 +19,7 @@ Android 文件下载引擎，稳定、高效、灵活、简单易用
 ### 特点
 
 - 简单易用
+- 单任务多线程/多连接/分块下载(并支持通过`ConnectionCountAdapter`定制)
 - 高并发
 - 灵活
 - 可选择性支持: 独立/非独立进程
@@ -38,12 +39,13 @@ Android 文件下载引擎，稳定、高效、灵活、简单易用
 - 尽量多的英文注解。
 - 每个提交尽量的细而精准。
 - Commit message 遵循: [AngularJS's commit message convention](https://github.com/angular/angular.js/blob/master/CONTRIBUTING.md#-git-commit-guidelines)。
-- 尽可能的遵循IDE的代码检查建议(如 Android Studio 的 'Inspect Code')。
 
 ---
 
 ## I. 效果
 
+![][single_demo_gif]
+![][chunked_demo_gif]
 ![][serial_tasks_demo_gif]
 ![][parallel_tasks_demo_gif]
 ![][tasks_manager_demo_gif]
@@ -57,28 +59,16 @@ Android 文件下载引擎，稳定、高效、灵活、简单易用
 在项目中引用:
 
 ```groovy
-compile 'com.liulishuo.filedownloader:library:1.4.2'
+compile 'com.liulishuo.filedownloader:library:1.6.9'
 ```
 
 > 如果是eclipse引入jar包参考: [这里](https://github.com/lingochamp/FileDownloader/issues/212#issuecomment-232240415)
 
-#### 全局初始化在`Application.onCreate`中
+#### 全局初始化
 
-```java
-public XXApplication extends Application{
+如果你需要注册你的定制组件，你需要在`Application#onCreate`中调用`FileDownloader.setupOnApplicationOnCreate(application):InitCustomMaker`, 否则你只需要在使用FileDownloader之前的任意时候调用`FileDownloader.setup(Context)`即可。
 
-    ...
-    @Override
-    public void onCreate() {
-        /**
-         * 仅仅是缓存Application的Context，不耗时
-         */
-        FileDownloader.init(getApplicationContext);
-    }
-
-    ...
-}
-```
+这些初始化方法都十分的简单，不会启动下载服务，一般都是在10ms内完成。
 
 #### 启动单任务下载
 
@@ -221,6 +211,9 @@ if (parallel) {
 //    );
 }
 
+// 最后你需要主动调用start方法来启动该Queue
+queueSet.start()
+
 // 串行任务动态管理也可以使用FileDownloadSerialQueue。
 ```
 
@@ -230,8 +223,8 @@ if (parallel) {
 
 | 方法名 | 备注
 | --- | ---
-| init(Context) |  缓存Context，不会启动下载进程
-| init(Context, InitCustomMaker) | 缓存Context，不会启动下载进程；在下载进程启动的时候，会传入定制化组件
+| setup(Context) | 如果不需要注册定制组件，就使用该方法在使用下载引擎前调用，该方法只会缓存Context
+| setupOnApplicationOnCreate(application):InitCustomMaker | 如果需要注册定制组件，就在Application#onCreate中调用该方法来注册定制组件以及初始化下载引擎，该方法不会启动下载服务
 | create(url:String) | 创建一个下载任务
 | start(listener:FileDownloadListener, isSerial:boolean) | 启动是相同监听器的任务，串行/并行启动
 | pause(listener:FileDownloadListener) | 暂停启动相同监听器的任务
@@ -263,12 +256,15 @@ if (parallel) {
 
 | 方法名 | 需实现接口 | 已有组件 | 默认组件 | 说明
 | --- | --- | --- | --- | ---
-| database | FileDownloadDatabase | DefaultDatabaseImpl | DefaultDatabaseImpl | 传入定制化数据库组件，用于存储用于断点续传的数据
+| database | FileDownloadDatabase | RemitDatabase、SqliteDatabaseImpl、NoDatabaseImpl | RemitDatabase | 传入定制化数据库组件，用于存储用于断点续传的数据
 | connection | FileDownloadConnection | FileDownloadUrlConnection | FileDownloadUrlConnection | 传入定制化的网络连接组件，用于下载时建立网络连接
-| outputStreamCreator | FileDownloadOutputStream | FileDownloadRandomAccessFile、FileDownloadBufferedOutputStream、FileDownloadOkio | FileDownloadRandomAccessFile | 传入输出流组件，用于下载时写文件使用
+| outputStreamCreator | FileDownloadOutputStream | FileDownloadRandomAccessFile | FileDownloadRandomAccessFile | 传入输出流组件，用于下载时写文件使用
 | maxNetworkThreadCount | - | - | 3 | 传入创建下载引擎时，指定可用的下载线程个数
+| ConnectionCountAdapter | ConnectionCountAdapter | DefaultConnectionCountAdapter | DefaultConnectionCountAdapter | 根据任务指定其线程数
+| IdGenerator | IdGenerator | DefaultIdGenerator | DefaultIdGenerator | 自定义任务Id生成器
 
-> 如果你希望Okhttp作为你的网络连接组件，可以使用[这个库](https://github.com/Jacksgong/filedownloader-okhttp3-connection)。
+> - 如果你希望Okhttp作为你的网络连接组件，可以使用[这个库](https://github.com/Jacksgong/filedownloader-okhttp3-connection)。
+> - 如果你不希望FileDownloader用到任何的数据库(是用于存储任务的断点续成信息的)，只需要使用[NoDatabaseImpl.java](https://github.com/lingochamp/FileDownloader/blob/master/library/src/main/java/com/liulishuo/filedownloader/services/NoDatabaseImpl.java)即可。
 
 #### Task接口说明
 
@@ -413,7 +409,9 @@ blockComplete -> completed
 | download.min-progress-time | 最小缓冲时间，用于判定是否是时候将缓冲区中进度同步到数据库，以及是否是时候要确保下缓存区的数据都已经写文件。值越小，更新会越频繁，下载速度会越慢，但是应对进程被无法预料的情况杀死时会更加安全 | 2000
 | download.max-network-thread-count | 用于同时下载的最大网络线程数, 区间[1, 12] | 3
 | file.non-pre-allocation | 是否不需要在开始下载的时候，预申请整个文件的大小(`content-length`) | false
+| broadcast.completed | 是否需要在任务下载完成后发送一个完成的广播 | false
 
+> 如果你使用`broadcast.completed`并且接收任务完成的广播,你需要注册Action为`filedownloader.intent.action.completed`的广播并且使用`FileDownloadBroadcastHandler`来处理接收到的`Intent`。
 
 III. 异常处理
 
@@ -485,6 +483,8 @@ limitations under the License.
 [tasks_manager_demo_gif]: https://github.com/lingochamp/FileDownloader/raw/master/art/tasks_manager_demo.gif
 [avoid_drop_frames_1_gif]: https://github.com/lingochamp/FileDownloader/raw/master/art/avoid_drop_frames1.gif
 [avoid_drop_frames_2_gif]: https://github.com/lingochamp/FileDownloader/raw/master/art/avoid_drop_frames2.gif
+[single_demo_gif]: https://github.com/lingochamp/FileDownloader/raw/master/art/single_demo.gif
+[chunked_demo_gif]: https://github.com/lingochamp/FileDownloader/raw/master/art/chunked_demo.gif
 [bintray_svg]: https://api.bintray.com/packages/jacksgong/maven/FileDownloader/images/download.svg
 [bintray_url]: https://bintray.com/jacksgong/maven/FileDownloader/_latestVersion
 [file_download_listener_callback_flow_png]: https://github.com/lingochamp/FileDownloader/raw/master/art/filedownloadlistener_callback_flow.png
